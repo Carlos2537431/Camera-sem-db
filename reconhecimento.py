@@ -1,115 +1,159 @@
 import cv2
-import sqlite3
-import easyocr
 import threading
+import time
 import re
+import easyocr
 import firebase_admin
 from difflib import SequenceMatcher
 from firebase_admin import credentials, db
+# import winsound  # opcional: habilite se quiser som no Windows
 
-# ===== banco de dados =====
-def verificar_placa_firebase(placa):
-    placas_banco = []
-    # Placas do caminho 'ocorrencias' (campo 'licensePlate')
-    ref_ocorrencias = db.reference('ocorrencias')
-    ocorrencias = ref_ocorrencias.get()
-    if ocorrencias:
-        for key, value in ocorrencias.items():
-            placa_db = value.get('licensePlate')
-            if placa_db:
-                placas_banco.append(placa_db.upper())
-    # Placas do caminho 'denuncias' (campo 'placa')
-    ref_denuncias = db.reference('denuncias')
-    denuncias = ref_denuncias.get()
-    if denuncias:
-        for key, value in denuncias.items():
-            placa_db = value.get('placa')
-            if placa_db:
-                placas_banco.append(placa_db.upper())
-    return placas_banco
-
-# ===== OCR =====
-reader = easyocr.Reader(["en"])  # Ingles funciona bem para OCR de placas por isso ingles (eu tentei portugues, tentei ate mais do que gostaria)
-
-# ===== regex para validar formato mercosul, pra nao pegar qualquer coisa, afinal placa tem padrao =====
-regex_mercosul = re.compile(r"^[A-Z]{3}[0-9][A-Z][0-9]{2}$")
-regex_antigo = re.compile(r"^[A-Z]{3}[0-9]{4}$")
-
-def validar_placa(placa):
-    """Retorna True se a placa segue o padrão Mercosul ou antigo"""
-    return bool(regex_mercosul.match(placa) or regex_antigo.match(placa))
-
-# ===== integração com Firebase =====
+# ===== Inicialização do Firebase =====
 cred = credentials.Certificate('sitepm-f99ee-firebase-adminsdk-fbsvc-d73ac37b07.json')
 firebase_admin.initialize_app(cred, {
     'databaseURL': 'https://sitepm-f99ee-default-rtdb.firebaseio.com/'
 })
 
-# ===== loop de camera =====
-def camera_loop(fonte, nome_janela):
-    cap = cv2.VideoCapture(fonte)
+# ===== Função para buscar placas no Firebase =====
+def verificar_placa_firebase():
+    placas_banco = []
+    ref1 = db.reference('ocorrencias')
+    ocorrencias = ref1.get()
+    if ocorrencias:
+        for v in ocorrencias.values():
+            p = v.get('licensePlate')
+            if p:
+                placas_banco.append(p.upper())
 
-    # verifica se a camera/arquivo abriu corretamente
+    ref2 = db.reference('denuncias')
+    denuncias = ref2.get()
+    if denuncias:
+        for v in denuncias.values():
+            p = v.get('placa')
+            if p:
+                placas_banco.append(p.upper())
+
+    return placas_banco
+
+# ===== OCR e regex =====
+reader = easyocr.Reader(["en"])
+regex_mercosul = re.compile(r"^[A-Z]{3}[0-9][A-Z][0-9]{2}$")
+regex_antigo = re.compile(r"^[A-Z]{3}[0-9]{4}$")
+
+def validar_placa(placa):
+    return bool(regex_mercosul.match(placa) or regex_antigo.match(placa))
+
+# ===== Variáveis globais =====
+ultimo_frame = None
+bbox_detectadas = []  # caixas das placas detectadas
+placas_banco = verificar_placa_firebase()
+alerta_texto = ""
+alerta_tempo = 0
+fps = 0.0
+lock = threading.Lock()
+
+# ===== Thread da câmera =====
+def camera_loop(fonte, nome_janela):
+    global ultimo_frame, alerta_texto, alerta_tempo, fps, bbox_detectadas
+
+    cap = cv2.VideoCapture(fonte, cv2.CAP_DSHOW)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+
     if not cap.isOpened():
-        print(f"Erro: não foi possível abrir a fonte {fonte}")
+        print("Erro: não foi possível abrir a câmera.")
         return
+
+    tempo_anterior = time.time()
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print(f"Fim da fonte {fonte}")
             break
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        resultados = reader.readtext(gray)
+        frame = cv2.GaussianBlur(frame, (3, 3), 0)
 
-        placas_banco = verificar_placa_firebase("")
+        # === Calcula FPS ===
+        tempo_atual = time.time()
+        fps = 1.0 / (tempo_atual - tempo_anterior)
+        tempo_anterior = tempo_atual
 
+        # salva o frame atual
+        with lock:
+            ultimo_frame = frame.copy()
+
+        # === desenha caixas de OCR detectadas ===
+        with lock:
+            for bbox in bbox_detectadas:
+                (top_left, bottom_right, texto) = bbox
+                cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 2)
+                cv2.putText(frame, texto, (top_left[0], top_left[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+
+        # === alerta visual ===
+        if time.time() - alerta_tempo < 3 and alerta_texto:
+            cv2.putText(frame, alerta_texto, (50, 80),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+            cv2.rectangle(frame, (30, 30), (1250, 100),
+                          (0, 0, 255), 4)
+
+        # === exibe FPS ===
+        cv2.putText(frame, f"FPS: {fps:.1f}", (30, 700),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+        # mostra vídeo
+        cv2.imshow(nome_janela, frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+# ===== Thread de OCR =====
+def ocr_loop():
+    global ultimo_frame, alerta_texto, alerta_tempo, bbox_detectadas
+
+    while True:
+        time.sleep(0.5)  # faz OCR a cada 0.8s
+
+        with lock:
+            if ultimo_frame is None:
+                continue
+            frame_ocr = ultimo_frame.copy()
+
+        gray = cv2.cvtColor(frame_ocr, cv2.COLOR_BGR2GRAY)
+        resultados = reader.readtext(gray, detail=1, paragraph=False)
+
+        novas_bboxes = []
         for bbox, texto, conf in resultados:
             placa = texto.upper().replace(" ", "").replace("-", "")
-
             if validar_placa(placa):
                 (top_left, top_right, bottom_right, bottom_left) = bbox
                 top_left = tuple(map(int, top_left))
                 bottom_right = tuple(map(int, bottom_right))
+                novas_bboxes.append((top_left, bottom_right, placa))
 
-                # desenha a caixa da placa
-                cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 2)
-                cv2.putText(frame, placa, (top_left[0], top_left[1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
-
-                # Verifica similaridade com placas do banco
                 for placa_db in placas_banco:
                     similaridade = SequenceMatcher(None, placa, placa_db).ratio()
-                    if similaridade >= 0.8:  # 80% ou mais de similaridade
-                        print(f"ALERTA: Placa parecida encontrada! {placa} ≈ {placa_db}")
-                        cv2.putText(frame, f"⚠ ALERTA: PLACA PARECIDA ({placa_db}) ⚠",
-                                    (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1,
-                                    (0, 0, 255), 3)
-                        # Aqui você pode acionar um alarme real (som, GPIO, etc)
+                    if similaridade >= 0.8:
+                        alerta_texto = f"⚠ Veiculo permitido: {placa} ≈ {placa_db}"
+                        alerta_tempo = time.time()
+                        print(alerta_texto)
+                        # winsound.Beep(1000, 500)  # som opcional
                         break
 
-        cv2.imshow(nome_janela, frame)
+        # atualiza as caixas detectadas
+        with lock:
+            bbox_detectadas = novas_bboxes
 
-        # pressione Q para sair
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()  # fecha todas as janelas de forma segura
-
-# ===== execução =====
+# ===== Execução =====
 if __name__ == "__main__":
-    fontes = [
-        0,                 # webcam padrão do pc
-        # "video.mp4",     # arquivo local (descomente se quiser usar video[descomente so video mp4])
-    ]
+    t_cam = threading.Thread(target=camera_loop, args=(0, "Câmera AO VIVO"))
+    t_ocr = threading.Thread(target=ocr_loop, daemon=True)
 
-    threads = []
-    for i, fonte in enumerate(fontes):
-        t = threading.Thread(target=camera_loop, args=(fonte, f"Camera {i+1}"))
-        t.start()
-        threads.append(t)
+    t_cam.start()
+    t_ocr.start()
 
-    for t in threads:
-        t.join()
+    t_cam.join()
