@@ -43,6 +43,15 @@ regex_antigo = re.compile(r"^[A-Z]{3}[0-9]{4}$")
 def validar_placa(placa):
     return bool(regex_mercosul.match(placa) or regex_antigo.match(placa))
 
+# ===== Simulação de liberação de catraca =====
+def liberar_catraca_simulada(placa):
+    print(f"🚦 CATRACA LIBERADA para o veículo {placa}!")
+    # Exibe alerta visual na tela
+    global alerta_texto, alerta_tempo
+    alerta_texto = f"✅ CATRACA LIBERADA: {placa}"
+    alerta_tempo = time.time()
+    # winsound.Beep(1200, 500)  # som opcional
+
 # ===== Variáveis globais =====
 ultimo_frame = None
 bbox_detectadas = []  # caixas das placas detectadas
@@ -116,7 +125,7 @@ def ocr_loop():
     global ultimo_frame, alerta_texto, alerta_tempo, bbox_detectadas
 
     while True:
-        time.sleep(0.5)  # faz OCR a cada 0.8s
+        time.sleep(0.5)  # faz OCR a cada meio segundo
 
         with lock:
             if ultimo_frame is None:
@@ -138,10 +147,7 @@ def ocr_loop():
                 for placa_db in placas_banco:
                     similaridade = SequenceMatcher(None, placa, placa_db).ratio()
                     if similaridade >= 0.8:
-                        alerta_texto = f"⚠ Veiculo permitido: {placa} ≈ {placa_db}"
-                        alerta_tempo = time.time()
-                        print(alerta_texto)
-                        # winsound.Beep(1000, 500)  # som opcional
+                        liberar_catraca_simulada(placa)
                         break
 
         # atualiza as caixas detectadas
