@@ -1,0 +1,11 @@
+easyocr
+opencv-python
+firebase-admin
+requests
+flask
+flask-cors
+pydantic
+python-dotenv
+schedule
+pytest
+pytest-mock

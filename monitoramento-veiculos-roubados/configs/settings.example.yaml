@@ -1,0 +1,24 @@
+database:
+  type: firebase
+  url: "https://your-firebase-database-url.firebaseio.com/"
+  credentials: "path/to/your/firebase-adminsdk.json"
+
+monuv:
+  api_key: "your_monuv_api_key"
+  webhook_url: "https://your-webhook-url.com/monuv"
+
+detecta:
+  api_key: "your_detecta_api_key"
+  endpoint: "https://api.detecta.com/v1/alerts"
+
+alerta_brasil:
+  api_key: "your_alerta_brasil_api_key"
+  endpoint: "https://api.alertabrasil.com/v1/alerts"
+
+logging:
+  level: DEBUG
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+notifications:
+  police_contact: "police@example.com"
+  alert_threshold: 5
