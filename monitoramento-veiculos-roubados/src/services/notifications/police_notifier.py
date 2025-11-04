@@ -1,11 +1,11 @@
 import requests
 import json
-from core.config import settings
+from src.core.config import settings
 
 class PoliceNotifier:
     def __init__(self):
-        self.api_url = settings.POLICE_API_URL
-        self.api_key = settings.POLICE_API_KEY
+        self.api_url = getattr(settings, "POLICE_API_URL", None)
+        self.api_key = getattr(settings, "POLICE_API_KEY", None)
 
     def notify_police(self, vehicle_info):
         payload = {
@@ -20,6 +20,10 @@ class PoliceNotifier:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
         }
+
+        if not self.api_url or not self.api_key:
+            # Configuração ausente: não tenta chamar serviço externo
+            return {"skipped": True, "reason": "POLICE_API_URL/KEY não configurados"}
 
         try:
             response = requests.post(self.api_url, headers=headers, data=json.dumps(payload))

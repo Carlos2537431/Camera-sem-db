@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
-from api.routes import health, alerts, monuv_webhooks
-from core.config import settings
+from src.api.routes import health, alerts, monuv_webhooks
+from src.core.config import settings
 
 app = FastAPI(title="Monitoramento de Veículos Roubados")
 

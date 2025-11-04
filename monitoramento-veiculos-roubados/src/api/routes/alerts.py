@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from services.notifications.police_notifier import PoliceNotifier
+from src.services.notifications.police_notifier import PoliceNotifier
 
 router = APIRouter()
 

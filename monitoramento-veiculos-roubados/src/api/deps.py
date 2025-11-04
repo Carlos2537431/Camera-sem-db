@@ -5,12 +5,13 @@ from src.services.notifications.dispatcher import NotificationDispatcher
 from src.services.integracoes.detecta_client import DetectaClient
 from src.services.integracoes.alerta_brasil_client import AlertaBrasilClient
 
-def get_db_session() -> Session:
-    db = get_db()
-    try:
-        yield db
-    finally:
-        db.close()
+def get_db_session(db: Session = Depends(get_db)) -> Session:
+    """Entrega uma sessão do SQLAlchemy via FastAPI Depends.
+
+    Observação: get_db() já é um dependency generator que abre/fecha a sessão.
+    Aqui apenas repassamos a instância já gerenciada.
+    """
+    return db
 
 def get_notification_dispatcher() -> NotificationDispatcher:
     return NotificationDispatcher()
